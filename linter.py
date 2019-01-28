@@ -41,12 +41,32 @@ class Flake8(PythonLinter):
     #  - E999 SyntaxError
 
     regex = (
-        r'^.+?:(?P<line>\d+):(?P<col>\d+): '
+        r'^(?P<filename>(?::\\|[^:])+):(?P<line>\d+):(?P<col>\d+): '
         r'(?:(?P<error>(?:F(?:40[24]|8(?:12|2[123]|31))|E(?:11[23]|90[12]|999)))|'
         r'(?P<warning>\w\d+)) '
         r'(?P<message>.*)'
     )
     multiline = True
+
+    def should_lint(self, reason=None):
+        self.reason = reason
+        return super().should_lint(reason)
+
+    def cmd(self):
+        if (
+            self.reason in ("on_user_request", "on_save")
+            and self.settings.context.get('file', None)
+        ):
+            self.tempfile_suffix = '-'
+            return ('flake8', '--format', 'default', '${args}', '${xoo:.}')
+        else:
+            return ('flake8', '--format', 'default', '${args}', '-')
+
+    def split_match(self, match):
+        error = super().split_match(match)
+        if error.filename == 'stdin':
+            error['filename'] = ''
+        return error
 
     def on_stderr(self, stderr):
         # For python 3.7 we actually have the case that flake yields
@@ -75,6 +95,9 @@ class Flake8(PythonLinter):
 
         filtered_errors = []
         for error in errors:
+            if error is None:
+                continue
+
             code = error['code']
 
             if ensures_newline and code == 'W292':
